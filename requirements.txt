@@ -1,0 +1,12 @@
+scapy
+numpy
+pandas
+scikit-learn
+networkx
+joblib
+requests
+dash
+plotly
+dash-cytoscape
+ryu
+eventlet==0.33.3

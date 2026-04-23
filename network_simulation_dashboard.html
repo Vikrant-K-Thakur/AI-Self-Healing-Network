@@ -1,0 +1,524 @@
+
+<style>
+@keyframes pulse-red { 0%,100%{opacity:1} 50%{opacity:.6} }
+@keyframes move-packet { 0%{stroke-dashoffset:0} 100%{stroke-dashoffset:-40} }
+@keyframes attack-flash { 0%,100%{opacity:1} 40%{opacity:.3} }
+@keyframes shake { 0%,100%{transform:translate(0,0)} 25%{transform:translate(-2px,0)} 75%{transform:translate(2px,0)} }
+@keyframes appear { from{opacity:0;transform:scale(0.5)} to{opacity:1;transform:scale(1)} }
+@keyframes fade-in { from{opacity:0} to{opacity:1} }
+@media (prefers-reduced-motion: no-preference) {
+  .packet-anim { animation: move-packet 0.8s linear infinite; }
+  .attack-anim { animation: attack-flash 0.5s ease-in-out infinite; }
+  .pulse-red-anim { animation: pulse-red 0.8s ease-in-out infinite; }
+  .shake-anim { animation: shake 0.3s ease-in-out infinite; }
+  .appear-anim { animation: appear 0.5s ease-out forwards; }
+  .fade-anim { animation: fade-in 0.6s ease-out forwards; }
+}
+</style>
+
+<div style="padding:0 0 1rem; font-family:var(--font-sans)">
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+  <div>
+    <div style="font-size:15px;font-weight:500;color:var(--color-text-primary)">Network Topology Simulator</div>
+    <div style="font-size:12px;color:var(--color-text-secondary);margin-top:2px" id="status-label">Normal operation — packets flowing h1 → h2</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <button id="btn-attack" onclick="startAttack()" style="font-size:12px;padding:6px 14px;background:var(--color-background-danger);color:var(--color-text-danger);border:1px solid var(--color-border-danger);border-radius:6px;cursor:pointer">Launch attack</button>
+    <button id="btn-reset" onclick="resetSim()" style="font-size:12px;padding:6px 14px;cursor:pointer;display:none">Reset</button>
+  </div>
+</div>
+
+<div style="display:flex;gap:8px;margin-bottom:12px">
+  <div id="stat-phase" style="flex:1;background:var(--color-background-secondary);border-radius:8px;padding:10px 12px;border:0.5px solid var(--color-border-tertiary)">
+    <div style="font-size:11px;color:var(--color-text-secondary)">Phase</div>
+    <div style="font-size:14px;font-weight:500;color:var(--color-text-primary)" id="stat-phase-val">Normal</div>
+  </div>
+  <div id="stat-path" style="flex:2;background:var(--color-background-secondary);border-radius:8px;padding:10px 12px;border:0.5px solid var(--color-border-tertiary)">
+    <div style="font-size:11px;color:var(--color-text-secondary)">Active path</div>
+    <div style="font-size:13px;font-weight:500;color:var(--color-text-success)" id="stat-path-val">h1 → s1 → s2 → h2</div>
+  </div>
+  <div id="stat-packets" style="flex:1;background:var(--color-background-secondary);border-radius:8px;padding:10px 12px;border:0.5px solid var(--color-border-tertiary)">
+    <div style="font-size:11px;color:var(--color-text-secondary)">Packets sent</div>
+    <div style="font-size:14px;font-weight:500;color:var(--color-text-primary)" id="stat-packets-val">0</div>
+  </div>
+</div>
+
+<div style="background:var(--color-background-secondary);border-radius:var(--border-radius-lg);border:0.5px solid var(--color-border-tertiary);padding:8px">
+<svg id="net-svg" width="100%" viewBox="0 0 680 310">
+<defs>
+  <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+</defs>
+
+<!-- Legend -->
+<circle cx="44" cy="18" r="5" fill="#639922" opacity="0.8"/>
+<text x="53" y="22" font-size="10" fill="var(--color-text-secondary)" font-family="var(--font-sans)">Active path</text>
+<circle cx="120" cy="18" r="5" fill="#E24B4A" opacity="0.8"/>
+<text x="129" y="22" font-size="10" fill="var(--color-text-secondary)" font-family="var(--font-sans)">Attacker/blocked</text>
+<circle cx="220" cy="18" r="5" fill="#EF9F27" opacity="0.8"/>
+<text x="229" y="22" font-size="10" fill="var(--color-text-secondary)" font-family="var(--font-sans)">Packet</text>
+<circle cx="280" cy="18" r="5" fill="#378ADD" opacity="0.8"/>
+<text x="289" y="22" font-size="10" fill="var(--color-text-secondary)" font-family="var(--font-sans)">Rerouted path</text>
+
+<!-- EDGES (drawn first so nodes appear on top) -->
+<!-- h1 - s1 -->
+<line id="edge-h1-s1" x1="128" y1="110" x2="222" y2="110" stroke="#639922" stroke-width="2.5" stroke-linecap="round" marker-end="url(#arr)"/>
+<!-- h3 - s1 -->
+<line id="edge-h3-s1" x1="128" y1="220" x2="222" y2="140" stroke="var(--color-border-tertiary)" stroke-width="1.5" stroke-dasharray="4 3" stroke-linecap="round"/>
+<!-- s1 - s2 -->
+<line id="edge-s1-s2" x1="292" y1="110" x2="382" y2="110" stroke="#639922" stroke-width="2.5" stroke-linecap="round" marker-end="url(#arr)"/>
+<!-- s2 - h2 -->
+<line id="edge-s2-h2" x1="452" y1="110" x2="548" y2="110" stroke="#639922" stroke-width="2.5" stroke-linecap="round" marker-end="url(#arr)"/>
+<!-- s1 - s3 -->
+<line id="edge-s1-s3" x1="257" y1="140" x2="337" y2="210" stroke="var(--color-border-tertiary)" stroke-width="1.5" stroke-linecap="round"/>
+<!-- s3 - h2 -->
+<line id="edge-s3-h2" x1="407" y1="220" x2="548" y2="130" stroke="var(--color-border-tertiary)" stroke-width="1.5" stroke-linecap="round"/>
+
+<!-- ATTACK PACKETS (hidden initially) -->
+<g id="attack-packets" opacity="0">
+  <circle id="apkt1" cx="128" cy="220" r="5" fill="#E24B4A"/>
+  <circle id="apkt2" cx="128" cy="220" r="5" fill="#E24B4A" opacity="0.7"/>
+</g>
+
+<!-- NORMAL PACKET along active path -->
+<circle id="normal-packet" cx="128" cy="110" r="6" fill="#EF9F27" opacity="0"/>
+
+<!-- NODES -->
+<!-- h1 - User host -->
+<g id="node-h1">
+  <rect x="58" y="80" width="70" height="60" rx="10" fill="#EAF3DE" stroke="#639922" stroke-width="1.5"/>
+  <rect x="72" y="89" width="42" height="28" rx="3" fill="#639922" opacity="0.7"/>
+  <rect x="76" y="93" width="34" height="20" rx="2" fill="#EAF3DE" opacity="0.9"/>
+  <rect x="65" y="117" width="50" height="4" rx="2" fill="#639922" opacity="0.5"/>
+  <rect x="75" y="121" width="30" height="3" rx="1.5" fill="#639922" opacity="0.3"/>
+  <text x="93" y="149" text-anchor="middle" font-size="11" font-weight="500" fill="#27500A" font-family="var(--font-sans)">h1</text>
+  <text x="93" y="161" text-anchor="middle" font-size="9" fill="#3B6D11" font-family="var(--font-sans)">user</text>
+</g>
+
+<!-- h2 - Server host -->
+<g id="node-h2">
+  <rect x="548" y="80" width="70" height="60" rx="10" fill="#EAF3DE" stroke="#639922" stroke-width="1.5"/>
+  <rect x="556" y="88" width="54" height="36" rx="4" fill="#639922" opacity="0.6"/>
+  <rect x="560" y="92" width="46" height="28" rx="2" fill="#EAF3DE" opacity="0.85"/>
+  <circle cx="583" cy="125" r="3" fill="#639922" opacity="0.5"/>
+  <rect x="564" y="96" width="10" height="3" rx="1" fill="#639922" opacity="0.5"/>
+  <rect x="564" y="101" width="16" height="3" rx="1" fill="#639922" opacity="0.4"/>
+  <text x="583" y="149" text-anchor="middle" font-size="11" font-weight="500" fill="#27500A" font-family="var(--font-sans)">h2</text>
+  <text x="583" y="161" text-anchor="middle" font-size="9" fill="#3B6D11" font-family="var(--font-sans)">server</text>
+</g>
+
+<!-- h3 - Attacker (initially hidden) -->
+<g id="node-h3" opacity="0.1">
+  <rect x="58" y="190" width="70" height="60" rx="10" fill="#FCEBEB" stroke="#E24B4A" stroke-width="1.5"/>
+  <rect x="72" y="199" width="42" height="28" rx="3" fill="#E24B4A" opacity="0.5"/>
+  <rect x="76" y="203" width="34" height="20" rx="2" fill="#FCEBEB" opacity="0.9"/>
+  <text x="77" y="212" text-anchor="start" font-size="16" fill="#E24B4A" font-family="var(--font-sans)">!</text>
+  <rect x="65" y="227" width="50" height="4" rx="2" fill="#E24B4A" opacity="0.4"/>
+  <rect x="75" y="231" width="30" height="3" rx="1.5" fill="#E24B4A" opacity="0.3"/>
+  <text x="93" y="259" text-anchor="middle" font-size="11" font-weight="500" fill="#791F1F" font-family="var(--font-sans)">h3</text>
+  <text x="93" y="271" text-anchor="middle" font-size="9" fill="#A32D2D" font-family="var(--font-sans)">attacker</text>
+</g>
+
+<!-- s1 - Core switch -->
+<g id="node-s1">
+  <rect x="222" y="84" width="70" height="52" rx="8" fill="#E6F1FB" stroke="#378ADD" stroke-width="1.5"/>
+  <rect x="230" y="92" width="54" height="26" rx="3" fill="#378ADD" opacity="0.5"/>
+  <line x1="234" y1="100" x2="234" y2="112" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <line x1="242" y1="97" x2="242" y2="115" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <line x1="250" y1="100" x2="250" y2="112" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <line x1="258" y1="98" x2="258" y2="114" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <line x1="266" y1="100" x2="266" y2="112" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <line x1="274" y1="97" x2="274" y2="115" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <text x="257" y="147" text-anchor="middle" font-size="11" font-weight="500" fill="#0C447C" font-family="var(--font-sans)">s1 — core</text>
+</g>
+
+<!-- s2 - Primary switch -->
+<g id="node-s2">
+  <rect x="382" y="84" width="70" height="52" rx="8" fill="#E6F1FB" stroke="#378ADD" stroke-width="1.5"/>
+  <rect x="390" y="92" width="54" height="26" rx="3" fill="#378ADD" opacity="0.5"/>
+  <line x1="394" y1="100" x2="394" y2="112" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <line x1="402" y1="97" x2="402" y2="115" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <line x1="410" y1="100" x2="410" y2="112" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <line x1="418" y1="98" x2="418" y2="114" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <line x1="426" y1="100" x2="426" y2="112" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <line x1="434" y1="97" x2="434" y2="115" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <text x="417" y="147" text-anchor="middle" font-size="11" font-weight="500" fill="#0C447C" font-family="var(--font-sans)">s2 — primary</text>
+</g>
+
+<!-- s3 - Backup switch -->
+<g id="node-s3">
+  <rect x="337" y="194" width="70" height="52" rx="8" fill="#D3D1C7" stroke="#888780" stroke-width="1.5" opacity="0.8"/>
+  <rect x="345" y="202" width="54" height="26" rx="3" fill="#888780" opacity="0.5"/>
+  <line x1="349" y1="210" x2="349" y2="222" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+  <line x1="357" y1="207" x2="357" y2="225" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+  <line x1="365" y1="210" x2="365" y2="222" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+  <line x1="373" y1="208" x2="373" y2="224" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+  <line x1="381" y1="210" x2="381" y2="222" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+  <line x1="389" y1="207" x2="389" y2="225" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+  <text x="372" y="257" text-anchor="middle" font-size="11" font-weight="500" fill="#444441" font-family="var(--font-sans)">s3 — backup</text>
+</g>
+
+<!-- Alert overlay -->
+<g id="alert-banner" opacity="0">
+  <rect x="40" y="274" width="600" height="26" rx="6" fill="#FCEBEB" stroke="#E24B4A" stroke-width="0.5"/>
+  <text id="alert-text" x="340" y="291" text-anchor="middle" font-size="11" fill="#791F1F" font-family="var(--font-sans)">Attack detected from h3 — blocking and rerouting...</text>
+</g>
+
+<!-- Reroute highlight (s1→s3→h2 path) -->
+<g id="reroute-group" opacity="0">
+  <line id="edge-reroute-1" x1="257" y1="136" x2="337" y2="207" stroke="#378ADD" stroke-width="3" stroke-linecap="round" marker-end="url(#arr)"/>
+  <line id="edge-reroute-2" x1="407" y1="220" x2="548" y2="135" stroke="#378ADD" stroke-width="3" stroke-linecap="round" marker-end="url(#arr)"/>
+</g>
+
+<!-- Reroute packet -->
+<circle id="reroute-packet" cx="257" cy="136" r="6" fill="#378ADD" opacity="0"/>
+
+<!-- Block X on h3 -->
+<g id="block-x" opacity="0">
+  <line x1="68" y1="198" x2="118" y2="248" stroke="#E24B4A" stroke-width="3" stroke-linecap="round"/>
+  <line x1="118" y1="198" x2="68" y2="248" stroke="#E24B4A" stroke-width="3" stroke-linecap="round"/>
+</g>
+
+</svg>
+</div>
+
+<!-- Event log -->
+<div style="margin-top:10px;background:var(--color-background-secondary);border-radius:8px;border:0.5px solid var(--color-border-tertiary);padding:10px 12px;max-height:110px;overflow-y:auto" id="event-log">
+  <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px;font-weight:500">Event log</div>
+  <div id="log-entries"></div>
+</div>
+
+</div>
+
+<script>
+let phase = 'normal';
+let packetCount = 0;
+let packetTimer = null;
+let attackTimer = null;
+let animFrames = [];
+
+function log(msg, color) {
+  const el = document.getElementById('log-entries');
+  const t = new Date().toLocaleTimeString('en', {hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const div = document.createElement('div');
+  div.style.cssText = 'font-size:11px;padding:2px 0;border-bottom:0.5px solid var(--color-border-tertiary);color:'+(color||'var(--color-text-secondary)');
+  div.textContent = t+' — '+msg;
+  el.insertBefore(div, el.firstChild);
+}
+
+function setAttr(id, attr, val) {
+  const el = document.getElementById(id);
+  if (el) el.setAttribute(attr, val);
+}
+function setStyle(id, prop, val) {
+  const el = document.getElementById(id);
+  if (el) el.style[prop] = val;
+}
+
+// Animate packet along a path (array of [x,y] waypoints)
+function animatePacket(elemId, waypoints, durationPerSeg, onDone, loop) {
+  const el = document.getElementById(elemId);
+  if (!el) return;
+  let seg = 0;
+  let start = null;
+  let running = true;
+
+  function step(ts) {
+    if (!running) return;
+    if (!start) start = ts;
+    const elapsed = ts - start;
+    const progress = Math.min(elapsed / durationPerSeg, 1);
+    const [x1,y1] = waypoints[seg];
+    const [x2,y2] = waypoints[seg+1];
+    el.setAttribute('cx', x1 + (x2-x1)*progress);
+    el.setAttribute('cy', y1 + (y2-y1)*progress);
+    el.setAttribute('opacity', 1);
+    if (progress < 1) {
+      animFrames.push(requestAnimationFrame(step));
+    } else {
+      seg++;
+      start = null;
+      if (seg < waypoints.length-1) {
+        animFrames.push(requestAnimationFrame(step));
+      } else {
+        if (loop) { seg=0; animFrames.push(requestAnimationFrame(step)); }
+        else { el.setAttribute('opacity',0); if(onDone) onDone(); }
+      }
+    }
+  }
+  animFrames.push(requestAnimationFrame(step));
+  return () => { running = false; };
+}
+
+// Normal path waypoints: h1 → s1 → s2 → h2
+const normalWaypoints = [[93,110],[257,110],[417,110],[583,110]];
+// Attack path: h3 → s1
+const attackWaypoints = [[93,220],[257,120]];
+// Reroute path: s1 → s3 → h2
+const rerouteWaypoints = [[257,136],[372,220],[583,130]];
+
+let normalPacketLoop = null;
+
+function startNormalPackets() {
+  const pkt = document.getElementById('normal-packet');
+  let seg = 0;
+  let startTs = null;
+  let running = true;
+  const dur = 600;
+
+  function step(ts) {
+    if (!running) return;
+    if (!startTs) startTs = ts;
+    const elapsed = ts - startTs;
+    const progress = Math.min(elapsed / dur, 1);
+    const [x1,y1] = normalWaypoints[seg];
+    const [x2,y2] = normalWaypoints[seg+1];
+    pkt.setAttribute('cx', x1 + (x2-x1)*progress);
+    pkt.setAttribute('cy', y1 + (y2-y1)*progress);
+    pkt.setAttribute('opacity', 1);
+    if (progress < 1) {
+      animFrames.push(requestAnimationFrame(step));
+    } else {
+      seg++;
+      startTs = null;
+      if (seg < normalWaypoints.length-1) {
+        animFrames.push(requestAnimationFrame(step));
+      } else {
+        seg = 0;
+        pkt.setAttribute('opacity', 0);
+        packetCount++;
+        document.getElementById('stat-packets-val').textContent = packetCount;
+        setTimeout(() => { if(running) animFrames.push(requestAnimationFrame(step)); }, 300);
+      }
+    }
+  }
+  animFrames.push(requestAnimationFrame(step));
+  return () => { running = false; pkt.setAttribute('opacity',0); };
+}
+
+let stopNormal = null;
+
+function initNormal() {
+  phase = 'normal';
+  log('System online — normal traffic h1 → s1 → s2 → h2', 'var(--color-text-success)');
+  document.getElementById('status-label').textContent = 'Normal operation — packets flowing h1 → h2';
+  document.getElementById('stat-phase-val').textContent = 'Normal';
+  document.getElementById('stat-path-val').textContent = 'h1 → s1 → s2 → h2';
+  document.getElementById('stat-path-val').style.color = 'var(--color-text-success)';
+
+  // Green primary path
+  ['edge-h1-s1','edge-s1-s2','edge-s2-h2'].forEach(id => {
+    const e = document.getElementById(id);
+    if (e) { e.setAttribute('stroke','#639922'); e.setAttribute('stroke-width','2.5'); e.removeAttribute('stroke-dasharray'); }
+  });
+  // Dim h3
+  setAttr('node-h3','opacity','0.1');
+  // Dim backup path
+  ['edge-h3-s1','edge-s1-s3','edge-s3-h2'].forEach(id => {
+    const e = document.getElementById(id);
+    if (e) { e.setAttribute('stroke','var(--color-border-tertiary)'); e.setAttribute('stroke-width','1.5'); e.setAttribute('stroke-dasharray','4 3'); }
+  });
+  setAttr('reroute-group','opacity','0');
+  setAttr('alert-banner','opacity','0');
+  setAttr('block-x','opacity','0');
+  setAttr('attack-packets','opacity','0');
+
+  stopNormal = startNormalPackets();
+}
+
+function startAttack() {
+  if (phase !== 'normal') return;
+  phase = 'attacking';
+  document.getElementById('btn-attack').disabled = true;
+  document.getElementById('btn-attack').style.opacity = '0.4';
+
+  log('Attack initiated — h3 starting flood attack on s1!', '#E24B4A');
+  document.getElementById('status-label').textContent = 'Attack detected — h3 flooding s1 with malicious traffic';
+  document.getElementById('stat-phase-val').textContent = 'Under attack';
+  document.getElementById('stat-phase-val').style.color = 'var(--color-text-danger)';
+
+  // Show h3 with animation
+  const h3 = document.getElementById('node-h3');
+  h3.setAttribute('opacity','1');
+  h3.classList.add('appear-anim');
+
+  // Red attack edge
+  const attackEdge = document.getElementById('edge-h3-s1');
+  attackEdge.setAttribute('stroke','#E24B4A');
+  attackEdge.setAttribute('stroke-width','2.5');
+  attackEdge.removeAttribute('stroke-dasharray');
+
+  // Show attack packets (multiple rapid ones)
+  const apkts = document.getElementById('attack-packets');
+  apkts.setAttribute('opacity','1');
+
+  // Animate attack packets h3→s1 rapidly
+  let atk1 = document.getElementById('apkt1');
+  let atk2 = document.getElementById('apkt2');
+  let aRunning = true;
+  let t1 = 0, t2 = 0.4;
+
+  function atkStep(ts) {
+    if (!aRunning) return;
+    const dur = 700;
+    const p1 = ((ts * 0.001 + t1) % 1);
+    const p2 = ((ts * 0.001 + t2) % 1);
+    atk1.setAttribute('cx', 93 + (257-93)*p1);
+    atk1.setAttribute('cy', 220 + (125-220)*p1);
+    atk2.setAttribute('cx', 93 + (257-93)*p2);
+    atk2.setAttribute('cy', 220 + (125-220)*p2);
+    animFrames.push(requestAnimationFrame(atkStep));
+  }
+  animFrames.push(requestAnimationFrame(atkStep));
+
+  // Shake s1 to show it's being hit
+  document.getElementById('node-s1').classList.add('shake-anim');
+
+  // After 2.5s — detection
+  setTimeout(() => {
+    if (phase !== 'attacking') return;
+    aRunning = false;
+    document.getElementById('node-s1').classList.remove('shake-anim');
+    triggerDetection();
+  }, 2500);
+}
+
+function triggerDetection() {
+  phase = 'detecting';
+  log('AI detection: DDoS flood from 10.0.0.3 — confidence 97.3%', '#EF9F27');
+  log('Blocking h3 (10.0.0.3) — dropping all traffic from attacker', '#EF9F27');
+
+  document.getElementById('status-label').textContent = 'Attack detected — blocking h3 and computing safe reroute...';
+  document.getElementById('stat-phase-val').textContent = 'Detecting & blocking';
+
+  // Show alert banner
+  const banner = document.getElementById('alert-banner');
+  banner.setAttribute('opacity','1');
+  banner.classList.add('pulse-red-anim');
+
+  // Block X over h3
+  setAttr('block-x','opacity','1');
+  document.getElementById('block-x').classList.add('appear-anim');
+
+  // Make attack edge dashed red (blocked)
+  const attackEdge = document.getElementById('edge-h3-s1');
+  attackEdge.setAttribute('stroke-dasharray','3 4');
+  attackEdge.setAttribute('stroke','#E24B4A');
+  attackEdge.setAttribute('stroke-width','1.5');
+  setAttr('attack-packets','opacity','0');
+
+  // After 1.5s — reroute
+  setTimeout(triggerReroute, 1500);
+}
+
+function triggerReroute() {
+  phase = 'rerouted';
+  log('Path rerouted: h1 → s1 → s3 → h2 (backup path active)', '#378ADD');
+  log('System self-healed — normal operation resumed on safe path', 'var(--color-text-success)');
+
+  document.getElementById('status-label').textContent = 'Rerouted — traffic now flowing via backup path s3';
+  document.getElementById('stat-phase-val').textContent = 'Rerouted';
+  document.getElementById('stat-phase-val').style.color = 'var(--color-text-info)';
+  document.getElementById('stat-path-val').textContent = 'h1 → s1 → s3 → h2';
+  document.getElementById('stat-path-val').style.color = 'var(--color-text-info)';
+
+  // Dim old green path (s1→s2→h2)
+  ['edge-s1-s2','edge-s2-h2'].forEach(id => {
+    const e = document.getElementById(id);
+    if (e) { e.setAttribute('stroke','var(--color-border-tertiary)'); e.setAttribute('stroke-width','1.5'); e.setAttribute('stroke-dasharray','4 3'); }
+  });
+
+  // Highlight backup switch
+  const s3 = document.getElementById('node-s3');
+  s3.querySelector('rect').setAttribute('fill','#E6F1FB');
+  s3.querySelector('rect').setAttribute('stroke','#378ADD');
+  s3.querySelector('rect').setAttribute('stroke-width','2');
+  s3.querySelector('rect').setAttribute('opacity','1');
+  s3.setAttribute('opacity','1');
+
+  // Show reroute path
+  setAttr('reroute-group','opacity','1');
+  document.getElementById('reroute-group').classList.add('fade-anim');
+
+  // Hide alert banner
+  const banner = document.getElementById('alert-banner');
+  banner.classList.remove('pulse-red-anim');
+  banner.setAttribute('opacity','0');
+
+  // Stop normal packet, start reroute packet
+  if (stopNormal) stopNormal();
+
+  // Reroute packet along s1→s3→h2
+  const rpkt = document.getElementById('reroute-packet');
+  let rSeg = 0, rStart = null, rRunning = true;
+  const rWaypoints = [[257,136],[372,220],[583,130]];
+
+  function rStep(ts) {
+    if (!rRunning) return;
+    if (!rStart) rStart = ts;
+    const elapsed = ts - rStart;
+    const dur = 650;
+    const progress = Math.min(elapsed/dur, 1);
+    const [x1,y1] = rWaypoints[rSeg];
+    const [x2,y2] = rWaypoints[rSeg+1];
+    rpkt.setAttribute('cx', x1+(x2-x1)*progress);
+    rpkt.setAttribute('cy', y1+(y2-y1)*progress);
+    rpkt.setAttribute('opacity', 1);
+    if (progress < 1) {
+      animFrames.push(requestAnimationFrame(rStep));
+    } else {
+      rSeg++;
+      rStart = null;
+      if (rSeg < rWaypoints.length-1) {
+        animFrames.push(requestAnimationFrame(rStep));
+      } else {
+        rSeg = 0;
+        rpkt.setAttribute('opacity',0);
+        packetCount++;
+        document.getElementById('stat-packets-val').textContent = packetCount;
+        setTimeout(() => { if(rRunning) { rStart=null; animFrames.push(requestAnimationFrame(rStep)); } }, 300);
+      }
+    }
+  }
+  animFrames.push(requestAnimationFrame(rStep));
+
+  // Show reset button
+  document.getElementById('btn-reset').style.display = 'inline-block';
+}
+
+function resetSim() {
+  // Cancel all animations
+  animFrames.forEach(id => cancelAnimationFrame(id));
+  animFrames = [];
+  if (stopNormal) stopNormal();
+  stopNormal = null;
+  packetCount = 0;
+  document.getElementById('stat-packets-val').textContent = '0';
+  document.getElementById('stat-phase-val').style.color = 'var(--color-text-primary)';
+  document.getElementById('btn-attack').disabled = false;
+  document.getElementById('btn-attack').style.opacity = '1';
+  document.getElementById('btn-reset').style.display = 'none';
+  document.getElementById('log-entries').innerHTML = '';
+
+  // Reset node-h3 animation class
+  const h3 = document.getElementById('node-h3');
+  h3.classList.remove('appear-anim','shake-anim');
+  document.getElementById('node-s1').classList.remove('shake-anim');
+
+  // Reset s3 to gray
+  const s3rect = document.getElementById('node-s3').querySelector('rect');
+  s3rect.setAttribute('fill','#D3D1C7');
+  s3rect.setAttribute('stroke','#888780');
+  s3rect.setAttribute('stroke-width','1.5');
+
+  document.getElementById('reroute-packet').setAttribute('opacity','0');
+  document.getElementById('normal-packet').setAttribute('opacity','0');
+  document.getElementById('attack-packets').setAttribute('opacity','0');
+
+  initNormal();
+}
+
+initNormal();
+</script>

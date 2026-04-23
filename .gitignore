@@ -1,0 +1,66 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+venv/
+env/
+.env
+.venv
+ENV/
+
+# ── ML models (large binary files — regenerate with: python3 model.py) ────────
+models/saved_model.pkl
+models/saved_scaler.pkl
+models/saved_anomaly.pkl
+models/saved_encoder.pkl
+models/adaptive_data.pkl
+
+# ── Runtime state (regenerated every run) ────────────────────────────────────
+routing_state.json
+topology_state.json
+learned_signatures.json
+
+# ── Logs (runtime output) ─────────────────────────────────────────────────────
+logs/
+*.log
+
+# ── Data directory ────────────────────────────────────────────────────────────
+data/
+
+# ── OS files ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE files ─────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Coverage / testing ────────────────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
