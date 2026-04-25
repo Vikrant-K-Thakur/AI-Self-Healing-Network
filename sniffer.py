@@ -33,6 +33,20 @@ on_flow_ready = None
 
 # ── Track last processing time per source IP ──────────────────────────────────
 _last_processed = defaultdict(float)
+_timer_threads = {}
+
+def _check_and_process(src_ip):
+    """Timer callback to process flow if window has passed since last processed."""
+    now = time.time()
+    if now - _last_processed[src_ip] >= FLOW_WINDOW - 0.1:
+        _last_processed[src_ip] = now
+        print(f'[Flow] Processing flow for {src_ip} | '
+              f'buffer size: {len(flow_buffer.get(src_ip, []))}')
+        _process_flow(src_ip)
+    
+    # Clean up thread tracking
+    if src_ip in _timer_threads:
+        del _timer_threads[src_ip]
 
 # ── Packet counter for debug ──────────────────────────────────────────────────
 _pkt_count = 0
@@ -87,6 +101,14 @@ def _packet_handler(packet):
         print(f'[Flow] Processing flow for {src_ip} | '
               f'buffer size: {len(flow_buffer.get(src_ip, []))}')
         _process_flow(src_ip)
+    elif src_ip not in _timer_threads:
+        # Schedule a check exactly when the window expires
+        time_left = FLOW_WINDOW - (now - _last_processed[src_ip])
+        if time_left > 0:
+            timer = threading.Timer(time_left, _check_and_process, args=[src_ip])
+            timer.daemon = True
+            timer.start()
+            _timer_threads[src_ip] = timer
 
 
 def _cleanup_loop():

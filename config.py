@@ -34,6 +34,7 @@ ALERTS_LOG   = os.path.join(LOGS_DIR, 'alerts.log')
 ROUTING_STATE_FILE      = os.path.join(BASE_DIR, 'routing_state.json')
 LEARNED_SIGNATURES_FILE = os.path.join(BASE_DIR, 'learned_signatures.json')
 TOPOLOGY_STATE_FILE     = os.path.join(BASE_DIR, 'topology_state.json')
+FORCED_ATTACK_FILE      = os.path.join(BASE_DIR, 'forced_attack_state.json')
 
 # ── Random topology parameters ─────────────────────────────────────────────────
 NUM_SWITCHES_MIN      = 4   # minimum switches

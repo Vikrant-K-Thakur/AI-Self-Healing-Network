@@ -30,6 +30,7 @@ _FLOW_ADD_URL = RYU_BASE_URL + '/stats/flowentry/add'
 
 # ── Runtime state ─────────────────────────────────────────────────────────────
 blocked_ips   = set()
+blocked_switches = set()
 attack_counts = {}
 
 
@@ -180,6 +181,20 @@ def create_random_network():
     G.add_edge('h1', src_sw, weight=host_edge_weight)
     G.add_edge('h2', dst_sw, weight=host_edge_weight)
 
+    # Guaranteed fallback receiver attachment so blocking dst-side switch
+    # still leaves a valid alternate route (user asked for s2 ↔ h2 path).
+    backup_h2_sw = None
+    if 's2' in switch_names and 's2' != dst_sw:
+        backup_h2_sw = 's2'
+    else:
+        for sw in switch_names:
+            if sw != dst_sw:
+                backup_h2_sw = sw
+                break
+    if backup_h2_sw and not G.has_edge('h2', backup_h2_sw):
+        G.add_edge('h2', backup_h2_sw, weight=host_edge_weight + 0.2)
+        print(f'[Routing] Added fallback host link h2↔{backup_h2_sw} for reroute resilience.')
+
     # attacker hosts ↔ their switches
     for hname, ip in attacker_hosts.items():
         G.add_edge(hname, attacker_ip_to_sw[ip], weight=host_edge_weight)
@@ -230,6 +245,7 @@ def create_random_network():
         'switches':       switch_names,
         'src_sw':         src_sw,
         'dst_sw':         dst_sw,
+        'backup_h2_sw':   backup_h2_sw,
         'host_ips':       config.HOST_IPS,
         'ip_to_switch':   dict(config.IP_TO_SWITCH),
         'sw_edges':       [list(e) for e in sw_edges],
@@ -307,6 +323,9 @@ def get_safe_path(G, source='h1', target='h2'):
         sw = config.IP_TO_SWITCH.get(ip)
         if sw and sw in G_temp.nodes:
             G_temp.remove_node(sw)
+    for sw in blocked_switches:
+        if sw in G_temp.nodes:
+            G_temp.remove_node(sw)
 
     try:
         path = nx.shortest_path(G_temp, source, target, weight='weight')
@@ -336,6 +355,21 @@ def block_ip(ip_address):
     blocked_ips.add(ip_address)
     print(f'[Routing] Blocked (in-memory): {ip_address}')
     _iptables_block(ip_address)
+    # Give it a system firewall drop on forward as well to lock it firmly out
+    try:
+        import subprocess
+        subprocess.run(['iptables', '-A', 'FORWARD', '-s', ip_address, '-j', 'DROP'], 
+                       check=False, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
+def block_switch(switch_name):
+    """Block a switch directly by removing it from path computation."""
+    if not switch_name:
+        return
+    blocked_switches.add(switch_name)
+    print(f'[Routing] Blocked switch: {switch_name}')
 
 
 def unblock_ip(ip_address):
@@ -412,15 +446,26 @@ def handle_attack(G, attacker_ip, attack_type, confidence):
     )
 
     if attacker_node and attacker_switch and G.has_edge(attacker_node, attacker_switch):
-        # Penalize only the direct host↔switch edge
+        # Penalize all edges from the attacker's switch severely so routing visibly shifts
         old = G[attacker_node][attacker_switch]['weight']
-        G[attacker_node][attacker_switch]['weight'] = old + EDGE_PENALTY
+        G[attacker_node][attacker_switch]['weight'] = old + 100.0
         print(f'[Routing] Edge {attacker_node}↔{attacker_switch}: '
-              f'{old:.1f} → {old + EDGE_PENALTY:.1f}')
+              f'{old:.1f} → {old + 100.0:.1f}')
+        penalize_node(G, attacker_switch, penalty=100.0) # Apply massive penalty to the switch
     elif attacker_switch:
-        penalize_node(G, attacker_switch)
+        penalize_node(G, attacker_switch, penalty=100.0)
 
-    new_path, cost = get_safe_path(G, 'h1', 'h2')
+    # CRITICALLY: Penalize ALL switches on the current active path so Dijkstra
+    # is forced to find a completely different route through different switches!
+    current_path, _ = get_safe_path(G, config.SENDER_HOST, config.RECEIVER_HOST)
+    if current_path:
+        switches_on_path = [node for node in current_path if str(node).startswith('s')]
+        for sw in switches_on_path:
+            penalize_node(G, sw, penalty=5000.0)
+        print(f'[Routing] HANDLE_ATTACK: Penalized ALL active switches {switches_on_path} (+5000 each)')
+
+    # Use actual config hosts instead of hardcoded 'h1' and 'h2'
+    new_path, cost = get_safe_path(G, config.SENDER_HOST, config.RECEIVER_HOST)
     if new_path:
         print(f'[Routing] New safe path: {" → ".join(new_path)} (cost: {cost:.1f})')
         # Push DROP rule to the switch the attacker is connected to

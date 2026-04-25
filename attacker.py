@@ -66,12 +66,18 @@ def _send(target_ip, src_ip, dport, flags='S', count=1, delay=0):
     Send TCP packets using L3 send() — fast and works in WSL2 without Mininet.
     Spoofs src_ip in the IP header so the sniffer sees the attacker IP.
     """
+    conf.verb = 0 # Disable verbose output
+    # Pre-build a Layer 2 frame to skip the slow ARP resolution fallback in Scapy
+    iface = _get_iface()
+    
     for _ in range(count):
-        pkt = IP(dst=target_ip, src=src_ip) / TCP(
-            sport=RandShort(), dport=dport, flags=flags,
+        # We wrap it in Ether() to bypass Scapy's extremely slow L3 ARP lookup
+        # for spoofed L3 IPs, making the packet generation virtually instant!
+        pkt = Ether() / IP(dst=target_ip, src=src_ip) / TCP(
+            sport=random.randint(1024, 65535), dport=dport, flags=flags,
             seq=random.randint(1000, 99999)
         )
-        send(pkt, verbose=0)
+        sendp(pkt, iface=iface, verbose=0)
         if delay > 0:
             time.sleep(delay)
 

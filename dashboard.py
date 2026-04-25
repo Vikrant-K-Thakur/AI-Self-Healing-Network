@@ -24,6 +24,7 @@ _state = {
     'G':             None,
     'active_path':   [],
     'blocked_ips':   set(),
+    'blocked_switches': set(),
     'attack_counts': {},
     'recent_events': [],
     'last_event':    None,
@@ -35,10 +36,11 @@ def init_state(G, active_path):
     _state['active_path'] = active_path or []
 
 
-def update_state(G, active_path, blocked_ips, attack_counts, event=None):
+def update_state(G, active_path, blocked_ips, attack_counts, event=None, blocked_switches=None):
     _state['G']             = G
     _state['active_path']   = active_path   or []
     _state['blocked_ips']   = blocked_ips   or set()
+    _state['blocked_switches'] = blocked_switches or set()
     _state['attack_counts'] = attack_counts or {}
     if event:
         _state['recent_events'].append(event)
@@ -94,6 +96,7 @@ def _build_svg(tick):
     G           = _state['G']
     active_path = _state['active_path'] or []
     blocked_ips = _state['blocked_ips'] or set()
+    blocked_switches_state = _state['blocked_switches'] or set()
     last_event  = _state['last_event']
 
     is_blocked   = bool(blocked_ips)
@@ -104,7 +107,7 @@ def _build_svg(tick):
     if not pos:
         return '<svg width="100%" viewBox="0 0 680 320"><text x="340" y="160" text-anchor="middle" fill="#8b949e" font-size="13" font-family="monospace">Waiting for topology...</text></svg>'
 
-    blocked_switches = {IP_TO_SWITCH.get(ip, '') for ip in blocked_ips}
+    blocked_switches = blocked_switches_state | {IP_TO_SWITCH.get(ip, '') for ip in blocked_ips}
     active_edges = set()
     for i in range(len(active_path) - 1):
         active_edges.add((active_path[i], active_path[i+1]))
@@ -282,8 +285,9 @@ def _host(p, node, nx, ny, sublabel, on_path, blocked, attacker=False, dim=False
 
 def _phase_info():
     blocked_ips = _state['blocked_ips'] or set()
+    blocked_switches = _state['blocked_switches'] or set()
     last_event  = _state['last_event']
-    is_blocked   = bool(blocked_ips)
+    is_blocked   = bool(blocked_ips or blocked_switches)
     is_attacking = bool(last_event and last_event.get('is_attack')
                         and last_event.get('action') in ('BLOCK', 'REROUTE'))
     if is_blocked:   return 'Rerouted',    '#378ADD'
@@ -294,9 +298,10 @@ def _phase_info():
 def _status_text():
     active_path = _state['active_path'] or []
     blocked_ips = _state['blocked_ips'] or set()
+    blocked_switches = _state['blocked_switches'] or set()
     last_event  = _state['last_event']
     path_str    = ' → '.join(active_path) if active_path else '...'
-    if bool(blocked_ips):
+    if bool(blocked_ips or blocked_switches):
         return f'Rerouted — traffic flowing via: {path_str}'
     if bool(last_event and last_event.get('is_attack')
             and last_event.get('action') in ('BLOCK', 'REROUTE')):

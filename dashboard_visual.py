@@ -42,6 +42,7 @@ import os
 _vstate = {
     'active_path':   ['h1', 's1', 's2', 'h2'],
     'blocked_ips':   set(),
+    'blocked_switches': set(),
     'attack_type':   None,
     'attack_src':    None,
     'confidence':    0,
@@ -57,11 +58,12 @@ _vstate = {
 _vstate_lock = threading.Lock()
 
 
-def update_visual_state(active_path, blocked_ips, event=None, stats=None):
+def update_visual_state(active_path, blocked_ips, blocked_switches=None, event=None, stats=None):
     """Called from main.py after every detection event."""
     with _vstate_lock:
         _vstate['active_path'] = active_path or ['h1', 's1', 's2', 'h2']
         _vstate['blocked_ips'] = blocked_ips or set()
+        _vstate['blocked_switches'] = blocked_switches or set()
         if event:
             _vstate['is_attacking']  = event.get('is_attack', False)
             _vstate['attack_type']   = event.get('attack_type')
@@ -166,19 +168,20 @@ def _load_visual_topology():
 _NODE_POSITIONS, _EDGES, _NODE_LABELS = _load_visual_topology()
 
 
-def _build_elements(active_path, blocked_ips, is_attacking, attack_src, packet_pos):
+def _build_elements(active_path, blocked_ips, blocked_switches, is_attacking, attack_src, packet_pos):
     """Build Cytoscape elements list with current state colors."""
     # Reload topology each call so it reflects the current run
     node_positions, edges, node_labels = _load_visual_topology()
 
     elements = []
     blocked_ips = blocked_ips or set()
+    blocked_switches = blocked_switches or set()
     active_path = active_path or []
 
     # IP → node name map (built from live HOST_IPS)
     from config import HOST_IPS as _HOST_IPS
     ip_to_node = {ip: h for h, ip in _HOST_IPS.items()}
-    blocked_nodes = {ip_to_node.get(ip, ip) for ip in blocked_ips}
+    blocked_nodes = {ip_to_node.get(ip, ip) for ip in blocked_ips} | set(blocked_switches)
 
     # ── Nodes ─────────────────────────────────────────────────────────────────
     for node, pos in node_positions.items():
@@ -409,7 +412,6 @@ def _create_app():
                     ),
                 ]
             ),
-
             dcc.Interval(id='v-refresh', interval=500, n_intervals=0),
         ]
     )
@@ -437,6 +439,7 @@ def _create_app():
         elements = _build_elements(
             state['active_path'],
             state['blocked_ips'],
+            state.get('blocked_switches', set()),
             state['is_attacking'],
             state['attack_src'],
             state['packet_pos'],

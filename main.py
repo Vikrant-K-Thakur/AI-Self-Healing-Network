@@ -36,6 +36,14 @@ import logger
 import dashboard as dash_module
 
 try:
+    import dashboard_reroute as reroute_module
+    REROUTE_AVAILABLE = True
+except ImportError as e:
+    print(f'[Main] Advanced reroute dashboard unavailable: {e}')
+    REROUTE_AVAILABLE = False
+    reroute_module = None
+
+try:
     import dashboard_visual as visual_module
     VISUAL_AVAILABLE = True
 except ImportError as e:
@@ -44,14 +52,14 @@ except ImportError as e:
     VISUAL_AVAILABLE = False
     visual_module = None
 
-from config import CONFIDENCE_LEARN, SAFE_IPS, SENDER_HOST, RECEIVER_HOST
+from config import CONFIDENCE_LEARN, SAFE_IPS, SENDER_HOST, RECEIVER_HOST, FORCED_ATTACK_FILE
 from model    import load_models, adaptive_update, FEATURE_COLUMNS
 from detector import detect, learn_new_signature, reload_models
 from routing  import (
     create_random_network, load_routing_state, save_routing_state,
     get_safe_path,
-    handle_attack, penalize_node, reward_node,
-    blocked_ips, attack_counts,
+    handle_attack, penalize_node, reward_node, block_switch,
+    blocked_ips, blocked_switches, attack_counts,
 )
 
 # ── Global state ──────────────────────────────────────────────────────────────
@@ -63,6 +71,27 @@ _adaptive_X     = []
 _adaptive_y     = []
 _ADAPTIVE_BATCH = 50
 _LABEL_MAP      = {'DoS / DDoS': 1, 'Port Scan / Probe': 2, 'Brute Force': 3}
+
+
+def _read_forced_attack_switch():
+    """Read the switch selected from the attack dashboard, if any."""
+    if not os.path.exists(FORCED_ATTACK_FILE):
+        return None
+    try:
+        import json
+        with open(FORCED_ATTACK_FILE, 'r') as f:
+            data = json.load(f)
+        return data.get('switch')
+    except Exception:
+        return None
+
+
+def _clear_forced_attack_switch():
+    try:
+        if os.path.exists(FORCED_ATTACK_FILE):
+            os.remove(FORCED_ATTACK_FILE)
+    except Exception:
+        pass
 
 
 # ── Detection callback ────────────────────────────────────────────────────────
@@ -101,13 +130,25 @@ def on_flow_detected(features, feature_vector):
             G=G,
             active_path=current_path,
             blocked_ips=blocked_ips,
+            blocked_switches=blocked_switches,
             attack_counts=attack_counts,
         )
-        visual_module.update_visual_state(
-            active_path=current_path,
-            blocked_ips=blocked_ips,
-            stats=logger.stats,
-        ) if VISUAL_AVAILABLE else None
+        if REROUTE_AVAILABLE:
+            reroute_module.update_state(
+                G=G,
+                active_path=current_path,
+                blocked_ips=blocked_ips,
+                blocked_switches=blocked_switches,
+                event={'is_attack': False},
+            )
+        if VISUAL_AVAILABLE:
+            visual_module.update_visual_state(
+                active_path=current_path,
+                blocked_ips=blocked_ips,
+                blocked_switches=blocked_switches,
+                event={'is_attack': False, 'attack_type': None, 'src_ip': None, 'confidence': 0, 'method': None},
+                stats=logger.stats,
+            )
         return
 
     # ── Attack confirmed ──────────────────────────────────────────────────────
@@ -125,9 +166,15 @@ def on_flow_detected(features, feature_vector):
     print(f"{'='*60}\n")
 
     old_path = current_path.copy()
+    forced_switch = _read_forced_attack_switch()
 
     if action == 'BLOCK':
         logger.log_block(src_ip, reason=f'{attack_type} ({confidence:.1f}%)')
+        import config
+        attacker_switch = forced_switch or config.IP_TO_SWITCH.get(src_ip)
+        if attacker_switch:
+            block_switch(attacker_switch)
+            penalize_node(G, attacker_switch, penalty=5000.0) # Massive penalty to force reroute visually
         new_path = handle_attack(G, src_ip, attack_type, confidence)
         if new_path and new_path != old_path:
             current_path = new_path
@@ -135,9 +182,15 @@ def on_flow_detected(features, feature_vector):
 
     elif action == 'REROUTE':
         import config
-        attacker_switch = config.IP_TO_SWITCH.get(src_ip)
+        attacker_switch = forced_switch or config.IP_TO_SWITCH.get(src_ip)
         if attacker_switch:
-            penalize_node(G, attacker_switch, penalty=5.0)
+            block_switch(attacker_switch)
+            penalize_node(G, attacker_switch, penalty=5000.0)
+        # CRITICALLY: Block/penalize the switch chosen in the control panel so
+        # the next path visibly avoids it.
+        if forced_switch:
+            block_switch(forced_switch)
+            print(f'[Main] Forced attack switch selected: {forced_switch}')
         new_path, _ = get_safe_path(G, SENDER_HOST, RECEIVER_HOST)
         if new_path and new_path != old_path:
             current_path = new_path
@@ -166,16 +219,29 @@ def on_flow_detected(features, feature_vector):
         G=G,
         active_path=current_path,
         blocked_ips=blocked_ips,
+        blocked_switches=blocked_switches,
         attack_counts=attack_counts,
         event=result,
     )
+    if REROUTE_AVAILABLE:
+        reroute_module.update_state(
+            G=G,
+            active_path=current_path,
+            blocked_ips=blocked_ips,
+            blocked_switches=blocked_switches,
+            event=result,
+        )
     if VISUAL_AVAILABLE:
         visual_module.update_visual_state(
             active_path=current_path,
             blocked_ips=blocked_ips,
+            blocked_switches=blocked_switches,
             event=result,
             stats=logger.stats,
         )
+
+    if forced_switch:
+        _clear_forced_attack_switch()
 
     # Persist routing state to disk
     save_routing_state(G)
@@ -246,6 +312,14 @@ def main():
             daemon=True,
         ).start()
         print('[Main] Dashboard → http://127.0.0.1:8050')
+
+        if REROUTE_AVAILABLE:
+            reroute_module.init_state(G, current_path)
+            threading.Thread(
+                target=lambda: reroute_module.run_dashboard(debug=False),
+                daemon=True,
+            ).start()
+            print('[Main] Advanced Reroute Dashboard → http://127.0.0.1:8053')
 
     if args.visual:
         if not VISUAL_AVAILABLE:
